@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ride Tracking - AutoMitra</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<style>
+body{
+    font-family:'Segoe UI',sans-serif;
+    margin:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+}
+#map{
+    height:60vh;
+    width:90%;
+    margin-top:10px;
+    border-radius:10px;
+}
+.info{
+    background:#f0fff4;
+    padding:15px;
+    border-radius:10px;
+    width:90%;
+    text-align:center;
+    margin-top:10px;
+    box-shadow:0 4px 15px rgba(0,0,0,0.1);
+}
+.info h2{color:#1fda6a;margin-bottom:5px;}
+.info p{margin:5px 0;}
+.btn{
+    padding:8px 12px;
+    border:none;
+    border-radius:8px;
+    background:#1fda6a;
+    color:white;
+    cursor:pointer;
+    margin:5px;
+}
+.btn:hover{background:#16b55f;}
+.select-payment{
+    padding:8px 12px;
+    border-radius:8px;
+    margin-top:5px;
+}
+.reached{
+    color:red;
+    font-weight:bold;
+    margin-top:5px;
+}
+</style>
+</head>
+<body>
+<div class="info">
+    <h2>Ride Details</h2>
+    <p id="personName">Name: </p>
+    <p id="personPhone">Phone: </p>
+    <p id="vehicleNo">Vehicle: </p>
+    <p id="eta">ETA: </p>
+    <p id="fare">Fare: </p>
+    <button class="btn" onclick="callPerson()">Call</button>
+    <button class="btn" style="background:red;" onclick="sos()">SOS</button>
+    <div>
+        <label for="paymentSelect">Pay Now:</label>
+        <select id="paymentSelect" class="select-payment" onchange="pay(this.value)">
+            <option value="">Select Payment Method</option>
+            <option value="Paytm">Paytm</option>
+            <option value="PhonePe">PhonePe</option>
+            <option value="BHIM">BHIM</option>
+        </select>
+    </div>
+    <p id="status" class="reached"></p>
+</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+let rideData = JSON.parse(localStorage.getItem("bookedRide"));
+if(!rideData){
+    alert("No ride data!");
+    window.location.href="index.html";
+}
+
+// Display Driver/Owner info correctly
+let personNameElem = document.getElementById("personName");
+if(rideData.type === "Auto" || rideData.type === "Electric Auto"){
+    personNameElem.innerText = "Driver: " + (rideData.driver || rideData.owner);
+} else {
+    personNameElem.innerText = "Car Owner: " + (rideData.owner || rideData.driver);
+}
+
+document.getElementById("personPhone").innerText = "Phone: " + rideData.phone;
+document.getElementById("vehicleNo").innerText = "Vehicle: " + rideData.vehicleNo;
+document.getElementById("eta").innerText = "ETA: " + rideData.eta + " mins";
+document.getElementById("fare").innerText = "Fare: ₹" + rideData.fare;
+
+// Call
+function callPerson(){
+    window.location.href = `tel:${rideData.phone}`;
+}
+
+// SOS
+function sos(){
+    fetch("http://localhost:5000/sos", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ride: rideData})
+    })
+    .then(res => res.json())
+    .then(data => alert(data.message))
+    .catch(err => alert("Failed to send SOS!"));
+}
+
+// Payment
+function pay(method){
+    if(!method) return;
+    alert(`Paid via ${method}!`);
+    document.getElementById("status").innerText="Payment done";
+}
+
+// Map & live tracking
+let map = L.map('map').fitWorld();
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+
+map.locate({setView:true, maxZoom:16});
+
+function onLocationFound(e){
+    let userLoc = e.latlng;
+    let dropPlace = {lat:userLoc.lat+0.01, lng:userLoc.lng+0.01}; // simulate drop location
+
+    L.marker([userLoc.lat,userLoc.lng]).addTo(map).bindPopup("Pickup Location").openPopup();
+    L.marker([dropPlace.lat,dropPlace.lng],{
+        icon:L.icon({
+            iconUrl:'https://cdn-icons-png.flaticon.com/512/684/684908.png',
+            iconSize:[35,35]
+        })
+    }).addTo(map).bindPopup("Drop Location");
+
+    let driverLatLng=[userLoc.lat,userLoc.lng];
+    let driverMarker=L.marker(driverLatLng,{
+        icon:L.icon({
+            iconUrl:'https://cdn-icons-png.flaticon.com/512/61/61448.png',
+            iconSize:[35,35]
+        })
+    }).addTo(map).bindPopup("Driver is here").openPopup();
+
+    let routeLine=L.polyline([driverLatLng,[dropPlace.lat,dropPlace.lng]],{color:'green'}).addTo(map);
+
+    // simulate driver moving
+    let steps=50;
+    let step=0;
+    let deltaLat=(dropPlace.lat - driverLatLng[0])/steps;
+    let deltaLng=(dropPlace.lng - driverLatLng[1])/steps;
+
+    let moveDriver=setInterval(()=>{
+        if(step>=steps){
+            clearInterval(moveDriver);
+            document.getElementById("status").innerText="Driver has reached your location!";
+            return;
+        }
+        driverLatLng[0]+=deltaLat;
+        driverLatLng[1]+=deltaLng;
+        driverMarker.setLatLng(driverLatLng).bindPopup("Driver on the way").openPopup();
+        step++;
+    },1000);
+}
+
+map.on('locationfound', onLocationFound);
+map.on('locationerror', ()=>{ alert("Could not get your location"); });
+</script>
+</body>
+</html>
+
